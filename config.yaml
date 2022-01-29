@@ -1,0 +1,10 @@
+  # Your full node ip, this is where your miners are also mining to
+NodeIP: XXX.XXX.XXX.XXX
+  # Your full node port, the same as used by your miners
+NodePort: 6434
+  # Your full node username and password
+NodeUser: someusername
+NodePass: somepassword
+  # These should be wallet NAMES, not receiving addresses, comma separated. 
+  # The wallets named here should be wallets that are available on this fullnode
+  # You must populate this with at least one wallet name if you want to use the Wallet Stats
