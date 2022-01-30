@@ -1,17 +1,24 @@
 package main
 
 import (
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
 	"os"
+
+	"gopkg.in/yaml.v2"
 )
 
 type conf struct {
-	NodeIP             string  `yaml:"NodeIP"`
-	NodePort           string  `yaml:"NodePort"`
-	NodeUser           string  `yaml:"NodeUser"`
-	NodePass           string  `yaml:"NodePass"`
+	NodeIP        string `yaml:"NodeIP"`
+	NodePort      string `yaml:"NodePort"`
+	NodeUser      string `yaml:"NodeUser"`
+	NodePass      string `yaml:"NodePass"`
+	ServiceDBIP   string `yaml:"ServiceDBHost"`
+	ServiceDBPort string `yaml:"ServiceDBPort"`
+	ServiceDBUser string `yaml:"ServiceDBUser"`
+	ServiceDBPass string `yaml:"ServiceDBPass"`
+	ServiceDBName string `yaml:"ServiceDBName"`
+	ServicePort   string `yaml:"ServicePort"`
 }
 
 func (c *conf) getConf() *conf {

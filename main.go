@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,20 +11,19 @@ import (
 	"net/url"
 	"strconv"
 	"time"
-	"database/sql"
-    _ "github.com/go-sql-driver/mysql"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var c conf
 
-
 type BlockInformation struct {
-	Time int
+	Time   int
 	Height int
-	TxId string
-	Hash string
-	Addr string
-	Coins float64
+	TxId   string
+	Hash   string
+	Addr   string
+	Coins  float64
 }
 
 // Get mining info for a range of blocks
@@ -67,84 +67,126 @@ Once init is done:
 	"hourStats": [
 
 	]
-}  
+}
 
 7 - once that is done, then it should run once every 5 minutes and do that again
 
 
 
 */
+var db *sql.DB
+var dbErr error
 
+var currentHeight int
+var currentDBHeight int
+var blockHistoryDepth int
 
 func main() {
 	c.getConf()
+	currentDBHeight = 0
+	blockHistoryDepth = 5000
 
-	miningInfo := make(map[string]float64)
-
-	currentHeight := getCurrentHeight()
-
-	fmt.Printf("Current Block Height: %d\n", currentHeight)
-
-	blockbase := 1160949
-	var myBlockInfo BlockInformation
-	n := 1
-	var firstTime, lastTime int
-	var numblocks = 20
-
-	for n <= numblocks {
-		
-		myBlockInfo = getFullBlockInfoForHeight(blockbase + n)
-		if (n == 1) {
-			firstTime = myBlockInfo.Time
-		}
-		if (n == (numblocks-1)) {
-			lastTime = myBlockInfo.Time
-		}
-
-		miningInfo[myBlockInfo.Addr] += myBlockInfo.Coins
-    	n += 1
+	db, dbErr = sql.Open("mysql", c.ServiceDBUser+":"+c.ServiceDBPass+"@tcp("+c.ServiceDBIP+":"+c.ServiceDBPort+")/"+c.ServiceDBName)
+	// if there is an error opening the connection, handle it
+	if dbErr != nil {
+		panic(dbErr.Error())
 	}
+	defer db.Close()
+	fmt.Printf("Connected to DB: %s\n", c.ServiceDBName)
 
-	fmt.Printf("First Time is %s\n", epochToString(firstTime))
-	fmt.Printf("Last Time is %s\n", epochToString(lastTime))
+	currentHeight = getCurrentHeight()
+	fmt.Printf("Current block height from node: %d\n", currentHeight)
 
-	//for key, element := range miningInfo {
-    //    fmt.Println("Addr:", key, "=>", "Coins:", element)
-    //}
+	fmt.Printf("Initializing...\n")
+	initOrUpdateStats()
 
+	// Grab new block info from the node every 5 minutes
+	go func() {
+		fmt.Printf("Service is RUNNING on port %s\n", c.ServicePort)
+		for {
+			time.Sleep(300 * time.Second)
+			initOrUpdateStats()
+		}
+	}()
+	handleRequests()
 
-	fmt.Printf("MY COINS IN RANGE: %.2f\n", miningInfo["dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm"])
-	fmt.Printf("My percent: %.2f\n", miningInfo["dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm"] * 100 / float64(numblocks))
 }
 
+func handleRequests() {
+	http.HandleFunc("/getminingstats", getAddrMiningStatsRPC)
+
+	log.Fatal(http.ListenAndServe(":"+c.ServicePort, nil))
+
+}
 
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
-func init() {
+func initOrUpdateStats() {
+
+	type DBResult struct {
+		height_id int `json:"height_id"`
+	}
+
+	// Execute the query
+	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	for results.Next() {
+		var dbResult DBResult
+		// for each row, scan the result into our tag composite object
+		err = results.Scan(&dbResult.height_id)
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+		// and then print out the tag's Name attribute
+		log.Printf("Got height_id: %d", dbResult.height_id)
+		currentDBHeight = dbResult.height_id
+	}
+
+	var startHeight = currentDBHeight
+
+	if startHeight < (currentHeight - blockHistoryDepth) {
+		startHeight = currentHeight - blockHistoryDepth
+	} else {
+		startHeight = currentDBHeight + 1
+	}
+
+	blockIdToGet := startHeight
+	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIdToGet)
+
+	var myBlockInfo BlockInformation
+	for blockIdToGet < currentHeight {
+		myBlockInfo = getFullBlockInfoForHeight(blockIdToGet)
+
+		insert, err := db.Query("INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES ( " + strconv.Itoa(blockIdToGet) + ", '" + myBlockInfo.Hash + "', " + strconv.Itoa(myBlockInfo.Time) + ", " + strconv.FormatFloat(myBlockInfo.Coins, 'E', -1, 64) + ",'" + myBlockInfo.Addr + "')")
+
+		// if there is an error inserting, handle it
+		if err != nil {
+			panic(err.Error())
+		}
+		// be careful deferring Queries if you are using transactions
+		insert.Close()
+
+		blockIdToGet += 1
+		if (blockIdToGet % 500) == 0 {
+			fmt.Printf("Grabbed up to block id %d\n", blockIdToGet)
+		}
+	}
+	fmt.Printf("DB update from Node is complete!\n")
 
 }
 
+// TODO!!! This one needs work...
 func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 }
 
-
-// Hmmm... this might be the same as init
-func updateBlockData() {
-
-}
-
-
-func connectToDb() {
-
-}
-
-
 func epochToString(epoch int) string {
-	unixTimeUTC:=time.Unix(int64(epoch), 0) //gives unix time stamp in utc 
-	unitTimeInRFC3339 :=unixTimeUTC.Format(time.RFC3339)
+	unixTimeUTC := time.Unix(int64(epoch), 0) //gives unix time stamp in utc
+	unitTimeInRFC3339 := unixTimeUTC.Format(time.RFC3339)
 
 	return unitTimeInRFC3339
 }
-
 
 func getFullBlockInfoForHeight(height int) BlockInformation {
 	var myBlockInfo BlockInformation
@@ -155,12 +197,11 @@ func getFullBlockInfoForHeight(height int) BlockInformation {
 	return myBlockInfo
 }
 
-
 func getCurrentHeight() int {
 	type blockHeightResult struct {
-		ID      string  `json:"id"`
-		Result      int  `json:"result"`
-		error      string  `json:"error"`
+		ID     string `json:"id"`
+		Result int    `json:"result"`
+		error  string `json:"error"`
 	}
 
 	client := &http.Client{}
@@ -192,9 +233,9 @@ func getCurrentHeight() int {
 func getBlockHash(blockInfo BlockInformation) BlockInformation {
 
 	type blockHashResult struct {
-		ID      string  `json:"id"`
-		Result      string  `json:"result"`
-		error      string  `json:"error"`
+		ID     string `json:"id"`
+		Result string `json:"result"`
+		error  string `json:"error"`
 	}
 
 	client := &http.Client{}
@@ -226,7 +267,6 @@ func getBlockHash(blockInfo BlockInformation) BlockInformation {
 	return blockInfo
 }
 
-
 // Step two, get the block for the hash... returns a txid IF IT WAS A MINED BLOCK
 func getBlock(blockInfo BlockInformation) BlockInformation {
 	type blockResult struct {
@@ -252,9 +292,8 @@ func getBlock(blockInfo BlockInformation) BlockInformation {
 			Tx                []string `json:"tx"`
 		} `json:"result"`
 		Error interface{} `json:"error"`
-		ID    string         `json:"id"`
+		ID    string      `json:"id"`
 	}
-
 
 	client := &http.Client{}
 	reqUrl := url.URL{
@@ -272,23 +311,22 @@ func getBlock(blockInfo BlockInformation) BlockInformation {
 		return blockInfo
 	}
 
-    bodyText, err := io.ReadAll(resp.Body)
-	
+	bodyText, err := io.ReadAll(resp.Body)
+
 	var myBlock blockResult
 
 	if err := json.Unmarshal(bodyText, &myBlock); err != nil {
 		return blockInfo
 	}
-	
-	blockInfo.Time =myBlock.Result.Time
+
+	blockInfo.Time = myBlock.Result.Time
 	blockInfo.TxId = myBlock.Result.Tx[0]
 	return blockInfo
 }
 
-
 type MinedTxInfo struct {
 	miningAddr string
-	coins float64
+	coins      float64
 }
 
 // Step three, get the information I care about
@@ -298,8 +336,6 @@ func getTransInfo(blockInfo BlockInformation) BlockInformation {
 
 	myInfo.miningAddr = "professorminingaddr"
 	myInfo.coins = 1.001
-
-
 
 	type TransResponse struct {
 		Result struct {
@@ -333,11 +369,8 @@ func getTransInfo(blockInfo BlockInformation) BlockInformation {
 			Blocktime     int    `json:"blocktime"`
 		} `json:"result"`
 		Error interface{} `json:"error"`
-		ID    string         `json:"id"`
+		ID    string      `json:"id"`
 	}
-
-
-
 
 	client := &http.Client{}
 	reqUrl := url.URL{
@@ -363,18 +396,9 @@ func getTransInfo(blockInfo BlockInformation) BlockInformation {
 		return blockInfo
 	}
 
-
-
 	blockInfo.Addr = myTrans.Result.Vout[0].ScriptPubKey.Address
 	blockInfo.Coins = myTrans.Result.Vout[0].Value
-
-
-
-
-
 
 	return blockInfo
 
 }
-
-

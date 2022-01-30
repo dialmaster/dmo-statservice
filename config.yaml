@@ -6,6 +6,13 @@ NodePort: 6434
 NodeUser: someusername
 NodePass: somepassword
 
+  # Database information for the DB this will store mining data to.
+ServiceDBUser: username
+ServiceDBPass: password
+ServiceDBHost: 127.0.0.1
+ServiceDBPort: 3306
+ServiceDBName: YourDBNameHere
+
   # The port THIS service should run on and expose it's rpc to get mining stats
 ServicePort: 9143
 

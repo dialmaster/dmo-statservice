@@ -3,9 +3,11 @@
 create table stats
  (
   height_id int not null primary key,
-  blockhash varchar(64) not null,
+  blockhash varchar(64),
   epoch int(11) unsigned not null,
-  coins float
+  coins float,
+  miningaddr varchar(64)
+  
 
  )engine=innodb;
 -- +goose StatementEnd
