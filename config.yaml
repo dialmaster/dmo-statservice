@@ -5,6 +5,7 @@ NodePort: 6434
   # Your full node username and password
 NodeUser: someusername
 NodePass: somepassword
-  # These should be wallet NAMES, not receiving addresses, comma separated. 
-  # The wallets named here should be wallets that are available on this fullnode
-  # You must populate this with at least one wallet name if you want to use the Wallet Stats
+
+  # The port THIS service should run on and expose it's rpc to get mining stats
+ServicePort: 9143
+

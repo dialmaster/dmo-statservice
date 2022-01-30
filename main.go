@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+	"database/sql"
+    _ "github.com/go-sql-driver/mysql"
 )
 
 var c conf
@@ -24,17 +26,70 @@ type BlockInformation struct {
 	Coins float64
 }
 
-// Get the last X blocks and print out a set of stats for addresses and the number of coins mined
+// Get mining info for a range of blocks
+
+/*
+What this program NEEDS to do:
+1 - When it starts, get the current block height
+2 - connect to the DB and see what the highest block it HAS is
+
+Init:
+3 - Start at the current block height -  (110000 -highest block in db)
+4 - go up to the current block
+5 - get the data for all those blocks and insert them
+
+Once init is done:
+6 - Fire up an http server and expose a service to get information for a given receiving address
+  This RPC needs to take 2 args:
+  {
+	  "receivingAddresses": "addr1,addr2,addr3...",
+	  "timeZone": "UTC-6"
+  }
+
+  That service should scan the last 110000 blocks are return stats for mined coins for the receiving addresses given:
+  daily stats for the last 21 days
+  hourly stats for today
+
+  It should return a JSON structure like:
+{
+	"dayStats" : [  // returns days from 21 days ago to now, in order... the last element in the array is today.
+			{
+			"coins": 100.33,
+			"totalBlocksForDate": 4500
+			},
+			{
+			"coins": 200.33,
+			"totalBlocksForDate": 4600
+			}
+
+	],
+
+	"hourStats": [
+
+	]
+}  
+
+7 - once that is done, then it should run once every 5 minutes and do that again
+
+
+
+*/
+
+
 func main() {
 	c.getConf()
 
 	miningInfo := make(map[string]float64)
 
+	currentHeight := getCurrentHeight()
+
+	fmt.Printf("Current Block Height: %d\n", currentHeight)
+
 	blockbase := 1160949
 	var myBlockInfo BlockInformation
 	n := 1
 	var firstTime, lastTime int
-	var numblocks = 2000
+	var numblocks = 20
 
 	for n <= numblocks {
 		
@@ -62,6 +117,27 @@ func main() {
 	fmt.Printf("My percent: %.2f\n", miningInfo["dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm"] * 100 / float64(numblocks))
 }
 
+
+// Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
+func init() {
+
+}
+
+func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
+}
+
+
+// Hmmm... this might be the same as init
+func updateBlockData() {
+
+}
+
+
+func connectToDb() {
+
+}
+
+
 func epochToString(epoch int) string {
 	unixTimeUTC:=time.Unix(int64(epoch), 0) //gives unix time stamp in utc 
 	unitTimeInRFC3339 :=unixTimeUTC.Format(time.RFC3339)
@@ -79,6 +155,38 @@ func getFullBlockInfoForHeight(height int) BlockInformation {
 	return myBlockInfo
 }
 
+
+func getCurrentHeight() int {
+	type blockHeightResult struct {
+		ID      string  `json:"id"`
+		Result      int  `json:"result"`
+		error      string  `json:"error"`
+	}
+
+	client := &http.Client{}
+	reqUrl := url.URL{
+		Scheme: "http",
+		Host:   c.NodeIP + ":" + c.NodePort,
+		Path:   "",
+	}
+
+	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblockcount", "params": { }}`)
+	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	req.SetBasicAuth(c.NodeUser, c.NodePass)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+		return 0
+	}
+	bodyText, err := io.ReadAll(resp.Body)
+
+	var myBlockHeight blockHeightResult
+
+	if err := json.Unmarshal(bodyText, &myBlockHeight); err != nil {
+		return 0
+	}
+	return myBlockHeight.Result
+}
 
 // Step one, get the block hash for the block number
 func getBlockHash(blockInfo BlockInformation) BlockInformation {

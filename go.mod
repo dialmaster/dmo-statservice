@@ -1,5 +1,8 @@
-module getblockinfo
+module dmo-statservice
 
 go 1.17
 
-require gopkg.in/yaml.v2 v2.4.0 // indirect
+require (
+	github.com/go-sql-driver/mysql v1.6.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
+)

@@ -1,2 +1,3 @@
 *.exe
 myconfig.yaml
+migrations/goose_up.sh
