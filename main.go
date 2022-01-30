@@ -177,8 +177,54 @@ func initOrUpdateStats() {
 
 }
 
+type mineRpc struct {
+	Addresses string
+}
+
 // TODO!!! This one needs work...
+/* Accept json request like:
+{
+    "Addresses": "'dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm'"
+}
+*/
+
 func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
+	decoder := json.NewDecoder(req.Body)
+	var jsonBody mineRpc
+	err := decoder.Decode(&jsonBody)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Getting stats for addresse(s) %s\n", jsonBody.Addresses)
+
+	type DBResult struct {
+		Height_id  int     `json:"height_id"`
+		Blockhash  string  `json:"blockhash"`
+		Epoch      int     `json:"epoch"`
+		Coins      float64 `json:"coins"`
+		Miningaddr string  `json:"miningaddr"`
+	}
+
+	// Execute the query
+	results, err := db.Query("select height_id, blockhash, epoch, coins, miningaddr from stats where miningaddr in (" + jsonBody.Addresses + ")")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	numCoins := 0.0
+	for results.Next() {
+		var dbResult DBResult
+		// for each row, scan the result into our tag composite object
+		err = results.Scan(&dbResult.Height_id, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+		numCoins += dbResult.Coins
+	}
+
+	fmt.Printf("Total Coins for addrs: %.2f\n", numCoins)
+
 }
 
 func epochToString(epoch int) string {
