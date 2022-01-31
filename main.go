@@ -90,8 +90,8 @@ var blockHistoryDepth int
 func main() {
 	c.getConf()
 	currentDBHeight = 0
-	// For now get 3 to 4 days worth... for testing
-	blockHistoryDepth = 20000
+
+	blockHistoryDepth = 100000
 
 	db, dbErr = sql.Open("mysql", c.ServiceDBUser+":"+c.ServiceDBPass+"@tcp("+c.ServiceDBIP+":"+c.ServiceDBPort+")/"+c.ServiceDBName)
 	// if there is an error opening the connection, handle it
@@ -275,6 +275,7 @@ func updateStats() {
 type mineRpc struct {
 	Addresses string
 	TZOffset  int
+	NumDays   int
 }
 
 func contains(s []string, str string) bool {
@@ -339,7 +340,13 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	var dayStats []DayStat
 
 	//	Fill up days...
-	numDays := 3
+	numDays := jsonBody.NumDays
+	if numDays < 2 {
+		numDays = 2
+	}
+	if numDays > 21 {
+		numDays = 21
+	}
 	for i := 0; i <= numDays; i++ {
 		curDay := i - numDays
 		startEpoch := getTZDayStart(jsonBody.TZOffset, curDay)
