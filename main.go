@@ -324,12 +324,6 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(rw).Encode(thisResponse)
 }
 
-type statsForRange struct {
-	MyCoins  float64 // Coins for addresses in range
-	AllCoins float64 // ALL coins mined in range
-	MyPerc   float64 // my percent of all coins for range
-}
-
 // Get lowest and highest block for epoch range
 func findBlocksForEpochRange(startEpoch int64, endEpoch int64) (int, int) {
 	lowest := lowestDBHeight
@@ -389,13 +383,6 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 	}
 
 	return numCoins
-}
-
-func epochToString(epoch int) string {
-	unixTimeUTC := time.Unix(int64(epoch), 0)
-	unitTimeInRFC3339 := unixTimeUTC.Format(time.RFC3339)
-
-	return unitTimeInRFC3339
 }
 
 func getFullBlockInfoForHeight(height int) BlockInformation {
