@@ -85,11 +85,13 @@ var dbErr error
 
 var currentHeight int
 var currentDBHeight int
+var lowestDBHeight int
 var blockHistoryDepth int
 
 func main() {
 	c.getConf()
 	currentDBHeight = 0
+	lowestDBHeight = 5000000000
 
 	blockHistoryDepth = 100000
 
@@ -107,6 +109,8 @@ func main() {
 	fmt.Printf("Initializing...\n")
 	fmt.Printf("Loading new blocks from DB...\n")
 	updateStats()
+	fmt.Printf("Lowest DB height is %d", lowestDBHeight)
+	fmt.Printf("Highest DB height is %d", currentDBHeight)
 	fmt.Printf("Done loading new blocks from DB!\n")
 	fmt.Printf("Caching DB to memory...\n")
 	loadDBStatsToMemory()
@@ -219,7 +223,6 @@ func updateStats() {
 		height_id int `json:"height_id"`
 	}
 
-	// Execute the query
 	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
 	if err != nil {
 		panic(err.Error()) // proper error handling instead of panic in your app
@@ -235,6 +238,23 @@ func updateStats() {
 		// and then print out the tag's Name attribute
 		log.Printf("Got height_id: %d", dbResult.height_id)
 		currentDBHeight = dbResult.height_id
+	}
+
+	results, err = db.Query("select height_id from stats order by height_id asc limit 0,1")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	for results.Next() {
+		var dbResult DBResult
+		// for each row, scan the result into our tag composite object
+		err = results.Scan(&dbResult.height_id)
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+		// and then print out the tag's Name attribute
+		log.Printf("Got height_id: %d", dbResult.height_id)
+		lowestDBHeight = dbResult.height_id
 	}
 
 	var startHeight = currentDBHeight
@@ -388,21 +408,67 @@ type statsForRange struct {
 	MyPerc   float64 // my percent of all coins for range
 }
 
+// Get lowest and highest block for epoch range
+func findBlocksForEpochRange(startEpoch int64, endEpoch int64) (int, int) {
+	//fmt.Printf("Looking for lowest/highest between %d and %d\n", startEpoch, endEpoch)
+	lowest := lowestDBHeight
+	highest := currentDBHeight
+
+	found := 0
+	for found == 0 {
+		if blockMap[lowest].Time > int(startEpoch) || lowest > currentDBHeight {
+			lowest -= 512
+			found = 1
+		}
+
+		lowest += 256
+
+	}
+
+	found = 0
+	for found == 0 {
+		if blockMap[highest].Time < int(endEpoch) || highest < lowestDBHeight {
+			highest += 512
+			found = 1
+		}
+		highest -= 256
+	}
+
+	if lowest < lowestDBHeight {
+		lowest = lowestDBHeight
+	}
+
+	if highest > currentDBHeight {
+		highest = currentDBHeight
+	}
+	//fmt.Printf("Found lowest %d at %d\n", lowest, blockMap[lowest].Time)
+	//fmt.Printf("Found highest %d at %d\n", highest, blockMap[highest].Time)
+
+	return lowest, highest
+}
+
 // Get the number of coins in a given epoch range. If addresses is passed, limit count to coins
 // for those addresses. If not then just get all mined coins in range count...
 func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) float64 {
 	addrsToCheck := strings.Split(addresses, ",")
 	numCoins := 0.0
-	for _, block := range blockMap {
-		if len(addrsToCheck) > 0 && len(addrsToCheck[0]) > 0 {
-			if contains(addrsToCheck, block.Addr) {
+
+	lowest, highest := findBlocksForEpochRange(startEpoch, endEpoch)
+
+	//TODO: Do not loop over entire blockmap... instead only check heights that COULD even contain the epochs
+	for i := lowest; i < highest; i++ {
+		//for _, block := range blockMap {
+		if block, ok := blockMap[i]; ok {
+			if len(addrsToCheck) > 0 && len(addrsToCheck[0]) > 0 {
+				if contains(addrsToCheck, block.Addr) {
+					if startEpoch < int64(block.Time) && int64(block.Time) < endEpoch {
+						numCoins += block.Coins
+					}
+				}
+			} else {
 				if startEpoch < int64(block.Time) && int64(block.Time) < endEpoch {
 					numCoins += block.Coins
 				}
-			}
-		} else {
-			if startEpoch < int64(block.Time) && int64(block.Time) < endEpoch {
-				numCoins += block.Coins
 			}
 		}
 	}
