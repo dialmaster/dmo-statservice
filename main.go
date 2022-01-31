@@ -309,7 +309,7 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		WinPercent float64
 	}
 
-	var hourStats = make(map[int]HourStat)
+	var hourStats []HourStat
 	fmt.Printf("Getting stats for addresse(s) %s\n", jsonBody.Addresses)
 	start := time.Now()
 
@@ -325,7 +325,7 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		thisHour.ChainCoins = getCoinsInEpochRange(startEpoch, endEpoch, "")
 		thisHour.WinPercent = thisHour.Coins * 100.0 / thisHour.ChainCoins
 		thisHour.Hour = i
-		hourStats[i] = thisHour
+		hourStats = append(hourStats, thisHour)
 
 	}
 
@@ -336,7 +336,7 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		WinPercent float64
 	}
 
-	var dayStats = make(map[int]DayStat)
+	var dayStats []DayStat
 
 	//	Fill up days...
 	numDays := 3
@@ -351,19 +351,19 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		thisDay.WinPercent = thisDay.Coins * 100.0 / thisDay.ChainCoins
 		formattedTime := time.Unix(startEpoch, 0).Format("2006-01-02")
 		thisDay.Day = formattedTime
-		dayStats[curDay] = thisDay
+		dayStats = append(dayStats, thisDay)
 	}
 
 	type ResponseStats struct {
-		HourlyStats         map[int]HourStat
-		DailyStats          map[int]DayStat
+		HourlyStats         []HourStat
+		DailyStats          []DayStat
 		ProjectedCoinsToday float64
 	}
 
 	secondsSoFarToday := float64(time.Now().Unix()-getTZDayStart(jsonBody.TZOffset, 0)) + 1.0
 
 	var thisResponse ResponseStats
-	thisResponse.ProjectedCoinsToday = dayStats[0].Coins * (86400.0 / secondsSoFarToday)
+	thisResponse.ProjectedCoinsToday = dayStats[len(dayStats)-1].Coins * (86400.0 / secondsSoFarToday)
 	thisResponse.HourlyStats = hourStats
 	thisResponse.DailyStats = dayStats
 	rw.Header().Set("Content-Type", "application/json")
