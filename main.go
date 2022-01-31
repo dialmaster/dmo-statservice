@@ -29,57 +29,8 @@ type BlockInformation struct {
 	Coins  float64
 }
 
-// Memory cache of blocks, with height as the key...
 var blockMap = make(map[int]BlockInformation)
 
-// Get mining info for a range of blocks
-
-/*
-What this program NEEDS to do:
-1 - When it starts, get the current block height
-2 - connect to the DB and see what the highest block it HAS is
-
-Init:
-3 - Start at the current block height -  (110000 -highest block in db)
-4 - go up to the current block
-5 - get the data for all those blocks and insert them
-
-Once init is done:
-6 - Fire up an http server and expose a service to get information for a given receiving address
-  This RPC needs to take 2 args:
-  {
-	  "receivingAddresses": "addr1,addr2,addr3...",
-	  "timeZone": "UTC-6"
-  }
-
-  That service should scan the last 110000 blocks are return stats for mined coins for the receiving addresses given:
-  daily stats for the last 21 days
-  hourly stats for today
-
-  It should return a JSON structure like:
-{
-	"dayStats" : [  // returns days from 21 days ago to now, in order... the last element in the array is today.
-			{
-			"coins": 100.33,
-			"totalBlocksForDate": 4500
-			},
-			{
-			"coins": 200.33,
-			"totalBlocksForDate": 4600
-			}
-
-	],
-
-	"hourStats": [
-
-	]
-}
-
-7 - once that is done, then it should run once every 5 minutes and do that again
-
-
-
-*/
 var db *sql.DB
 var dbErr error
 
@@ -96,7 +47,6 @@ func main() {
 	blockHistoryDepth = 100000
 
 	db, dbErr = sql.Open("mysql", c.ServiceDBUser+":"+c.ServiceDBPass+"@tcp("+c.ServiceDBIP+":"+c.ServiceDBPort+")/"+c.ServiceDBName)
-	// if there is an error opening the connection, handle it
 	if dbErr != nil {
 		panic(dbErr.Error())
 	}
@@ -116,20 +66,6 @@ func main() {
 	loadDBStatsToMemory()
 	fmt.Printf("DB cache to memory complete!\n")
 
-	myTime := time.Now()
-	zone_name, offset := myTime.Zone()
-
-	// Prints zone name
-	fmt.Printf("The zone name is: %s\n", zone_name)
-	fmt.Printf("The zone offset is: %d\n", offset)
-
-	// These are the helper funcs we will need to return stats....
-	fmt.Printf("Epoch of beginning of day today in EST %d\n", getTZDayStart(offset, 0))
-
-	fmt.Printf("This hour in EST is %d\n", getCurrentTZHour(offset))
-
-	fmt.Printf("Epoch of beginning of this hour in EST %d\n", getTZHourStart(offset, 0))
-
 	// Grab new block info from the node every minute
 	go func() {
 		fmt.Printf("Service is RUNNING on port %s\n", c.ServicePort)
@@ -142,7 +78,6 @@ func main() {
 
 }
 
-// Load ALL DB Stats into memory!
 func loadDBStatsToMemory() {
 	type DBResult struct {
 		Height_id  int     `json:"height_id"`
@@ -152,18 +87,16 @@ func loadDBStatsToMemory() {
 		Miningaddr string  `json:"miningaddr"`
 	}
 
-	// Execute the query
 	results, err := db.Query("select height_id, blockhash, epoch, coins, miningaddr from stats")
 	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+		panic(err.Error())
 	}
 
 	for results.Next() {
 		var dbResult DBResult
-		// for each row, scan the result into our tag composite object
 		err = results.Scan(&dbResult.Height_id, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
 		if err != nil {
-			panic(err.Error()) // proper error handling instead of panic in your app
+			panic(err.Error())
 		}
 		var myStatResult BlockInformation
 		myStatResult.Addr = dbResult.Miningaddr
@@ -213,7 +146,6 @@ func handleRequests() {
 }
 
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
-// TODO: This should ALSO load stats into memory... We wil get statistics from memory later
 func updateStats() {
 
 	currentHeight = getCurrentHeight()
@@ -225,35 +157,29 @@ func updateStats() {
 
 	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
 	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+		panic(err.Error())
 	}
 
 	for results.Next() {
 		var dbResult DBResult
-		// for each row, scan the result into our tag composite object
 		err = results.Scan(&dbResult.height_id)
 		if err != nil {
-			panic(err.Error()) // proper error handling instead of panic in your app
+			panic(err.Error())
 		}
-		// and then print out the tag's Name attribute
-		log.Printf("Got height_id: %d", dbResult.height_id)
 		currentDBHeight = dbResult.height_id
 	}
 
 	results, err = db.Query("select height_id from stats order by height_id asc limit 0,1")
 	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+		panic(err.Error())
 	}
 
 	for results.Next() {
 		var dbResult DBResult
-		// for each row, scan the result into our tag composite object
 		err = results.Scan(&dbResult.height_id)
 		if err != nil {
 			panic(err.Error()) // proper error handling instead of panic in your app
 		}
-		// and then print out the tag's Name attribute
-		log.Printf("Got height_id: %d", dbResult.height_id)
 		lowestDBHeight = dbResult.height_id
 	}
 
@@ -276,11 +202,9 @@ func updateStats() {
 		mutex.Unlock()
 		insert, err := db.Query("INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES ( " + strconv.Itoa(blockIdToGet) + ", '" + myBlockInfo.Hash + "', " + strconv.Itoa(myBlockInfo.Time) + ", " + strconv.FormatFloat(myBlockInfo.Coins, 'E', -1, 64) + ",'" + myBlockInfo.Addr + "')")
 
-		// if there is an error inserting, handle it
 		if err != nil {
 			panic(err.Error())
 		}
-		// be careful deferring Queries if you are using transactions
 		insert.Close()
 
 		blockIdToGet += 1
@@ -334,7 +258,6 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	fmt.Printf("Getting stats for addresse(s) %s\n", jsonBody.Addresses)
 	start := time.Now()
 
-	// Fill up HourStats array with all hours for today...
 	hoursToday := getCurrentTZHour(jsonBody.TZOffset)
 	for i := 0; i <= hoursToday; i++ {
 		curHour := i - hoursToday
@@ -359,7 +282,6 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 
 	var dayStats []DayStat
 
-	//	Fill up days...
 	numDays := jsonBody.NumDays
 	if numDays < 2 {
 		numDays = 2
@@ -410,7 +332,6 @@ type statsForRange struct {
 
 // Get lowest and highest block for epoch range
 func findBlocksForEpochRange(startEpoch int64, endEpoch int64) (int, int) {
-	//fmt.Printf("Looking for lowest/highest between %d and %d\n", startEpoch, endEpoch)
 	lowest := lowestDBHeight
 	highest := currentDBHeight
 
@@ -420,9 +341,7 @@ func findBlocksForEpochRange(startEpoch int64, endEpoch int64) (int, int) {
 			lowest -= 512
 			found = 1
 		}
-
 		lowest += 256
-
 	}
 
 	found = 0
@@ -441,8 +360,6 @@ func findBlocksForEpochRange(startEpoch int64, endEpoch int64) (int, int) {
 	if highest > currentDBHeight {
 		highest = currentDBHeight
 	}
-	//fmt.Printf("Found lowest %d at %d\n", lowest, blockMap[lowest].Time)
-	//fmt.Printf("Found highest %d at %d\n", highest, blockMap[highest].Time)
 
 	return lowest, highest
 }
@@ -455,9 +372,7 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 
 	lowest, highest := findBlocksForEpochRange(startEpoch, endEpoch)
 
-	//TODO: Do not loop over entire blockmap... instead only check heights that COULD even contain the epochs
 	for i := lowest; i < highest; i++ {
-		//for _, block := range blockMap {
 		if block, ok := blockMap[i]; ok {
 			if len(addrsToCheck) > 0 && len(addrsToCheck[0]) > 0 {
 				if contains(addrsToCheck, block.Addr) {
@@ -477,7 +392,7 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 }
 
 func epochToString(epoch int) string {
-	unixTimeUTC := time.Unix(int64(epoch), 0) //gives unix time stamp in utc
+	unixTimeUTC := time.Unix(int64(epoch), 0)
 	unitTimeInRFC3339 := unixTimeUTC.Format(time.RFC3339)
 
 	return unitTimeInRFC3339
