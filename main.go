@@ -10,12 +10,15 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var c conf
+var mutex = &sync.Mutex{}
 
 type BlockInformation struct {
 	Time   int
@@ -25,6 +28,9 @@ type BlockInformation struct {
 	Addr   string
 	Coins  float64
 }
+
+// Memory cache of blocks, with height as the key...
+var blockMap = make(map[int]BlockInformation)
 
 // Get mining info for a range of blocks
 
@@ -84,7 +90,8 @@ var blockHistoryDepth int
 func main() {
 	c.getConf()
 	currentDBHeight = 0
-	blockHistoryDepth = 5000
+	// For now get 3 to 4 days worth... for testing
+	blockHistoryDepth = 20000
 
 	db, dbErr = sql.Open("mysql", c.ServiceDBUser+":"+c.ServiceDBPass+"@tcp("+c.ServiceDBIP+":"+c.ServiceDBPort+")/"+c.ServiceDBName)
 	// if there is an error opening the connection, handle it
@@ -98,18 +105,100 @@ func main() {
 	fmt.Printf("Current block height from node: %d\n", currentHeight)
 
 	fmt.Printf("Initializing...\n")
-	initOrUpdateStats()
+	fmt.Printf("Loading new blocks from DB...\n")
+	updateStats()
+	fmt.Printf("Done loading new blocks from DB!\n")
+	fmt.Printf("Caching DB to memory...\n")
+	loadDBStatsToMemory()
+	fmt.Printf("DB cache to memory complete!\n")
 
-	// Grab new block info from the node every 5 minutes
+	myTime := time.Now()
+	zone_name, offset := myTime.Zone()
+
+	// Prints zone name
+	fmt.Printf("The zone name is: %s\n", zone_name)
+	fmt.Printf("The zone offset is: %d\n", offset)
+
+	// These are the helper funcs we will need to return stats....
+	fmt.Printf("Epoch of beginning of day today in EST %d\n", getTZDayStart(offset, 0))
+
+	fmt.Printf("This hour in EST is %d\n", getCurrentTZHour(offset))
+
+	fmt.Printf("Epoch of beginning of this hour in EST %d\n", getTZHourStart(offset, 0))
+
+	// Grab new block info from the node every minute
 	go func() {
 		fmt.Printf("Service is RUNNING on port %s\n", c.ServicePort)
 		for {
-			time.Sleep(300 * time.Second)
-			initOrUpdateStats()
+			time.Sleep(60 * time.Second)
+			updateStats()
 		}
 	}()
 	handleRequests()
 
+}
+
+// Load ALL DB Stats into memory!
+func loadDBStatsToMemory() {
+	type DBResult struct {
+		Height_id  int     `json:"height_id"`
+		Blockhash  string  `json:"blockhash"`
+		Epoch      int     `json:"epoch"`
+		Coins      float64 `json:"coins"`
+		Miningaddr string  `json:"miningaddr"`
+	}
+
+	// Execute the query
+	results, err := db.Query("select height_id, blockhash, epoch, coins, miningaddr from stats")
+	if err != nil {
+		panic(err.Error()) // proper error handling instead of panic in your app
+	}
+
+	for results.Next() {
+		var dbResult DBResult
+		// for each row, scan the result into our tag composite object
+		err = results.Scan(&dbResult.Height_id, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
+		if err != nil {
+			panic(err.Error()) // proper error handling instead of panic in your app
+		}
+		var myStatResult BlockInformation
+		myStatResult.Addr = dbResult.Miningaddr
+		myStatResult.Coins = dbResult.Coins
+		myStatResult.Height = dbResult.Height_id
+		myStatResult.Hash = dbResult.Blockhash
+		myStatResult.Time = dbResult.Epoch
+		mutex.Lock()
+		blockMap[dbResult.Height_id] = myStatResult
+		mutex.Unlock()
+	}
+
+}
+
+// Take a TZ and a day offset from today (0 for today, -1 for yesterday)
+// Return the unix epoch when that day started
+func getTZDayStart(tzOffset int, dayOffset int) int64 {
+	loc := time.FixedZone("MonitorZone", tzOffset)
+	myTime := time.Now().In(loc)
+	myTime = myTime.AddDate(0, 0, dayOffset)
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), 0, 0, 0, 0, loc).Unix()
+}
+
+// Take a TZ and an hour offset from this hour, return the unix epoch when that hour started
+// (0 for beginning of this hour, -1 for beginning of the last hour)
+// Take a TZ and a day offset from today (0 for today, -1 for yesterday)
+// Return the unix epoch when that day started
+func getTZHourStart(tzOffset int, hourOffset int) int64 {
+	loc := time.FixedZone("MonitorZone", tzOffset)
+	myTime := time.Now().In(loc)
+	myTime = myTime.Add(time.Hour * time.Duration(hourOffset))
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), myTime.Hour(), 0, 0, 0, loc).Unix()
+}
+
+// Get the current hour of the day in the timezone passed
+func getCurrentTZHour(tzOffset int) int {
+	loc := time.FixedZone("MonitorZone", tzOffset)
+	myTime := time.Now().In(loc)
+	return myTime.Hour()
 }
 
 func handleRequests() {
@@ -120,7 +209,11 @@ func handleRequests() {
 }
 
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
-func initOrUpdateStats() {
+// TODO: This should ALSO load stats into memory... We wil get statistics from memory later
+func updateStats() {
+
+	currentHeight = getCurrentHeight()
+	fmt.Printf("Current block height from node: %d\n", currentHeight)
 
 	type DBResult struct {
 		height_id int `json:"height_id"`
@@ -158,7 +251,9 @@ func initOrUpdateStats() {
 	var myBlockInfo BlockInformation
 	for blockIdToGet < currentHeight {
 		myBlockInfo = getFullBlockInfoForHeight(blockIdToGet)
-
+		mutex.Lock()
+		blockMap[myBlockInfo.Height] = myBlockInfo // Add to memory cache
+		mutex.Unlock()
 		insert, err := db.Query("INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES ( " + strconv.Itoa(blockIdToGet) + ", '" + myBlockInfo.Hash + "', " + strconv.Itoa(myBlockInfo.Time) + ", " + strconv.FormatFloat(myBlockInfo.Coins, 'E', -1, 64) + ",'" + myBlockInfo.Addr + "')")
 
 		// if there is an error inserting, handle it
@@ -179,15 +274,26 @@ func initOrUpdateStats() {
 
 type mineRpc struct {
 	Addresses string
+	TZOffset  int
 }
 
-// TODO!!! This one needs work...
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
+}
+
 /* Accept json request like:
 {
-    "Addresses": "'dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm'"
+    "Addresses": "dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm,kljdsalkjsadlksajd",
+	"TZOffset": -28800
 }
 */
-
+// TODO: Do not allow more than 10 receiving addresses
 func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	decoder := json.NewDecoder(req.Body)
 	var jsonBody mineRpc
@@ -196,35 +302,105 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		panic(err)
 	}
 
+	type HourStat struct {
+		Hour       int
+		Coins      float64
+		ChainCoins float64
+		WinPercent float64
+	}
+
+	var hourStats = make(map[int]HourStat)
 	fmt.Printf("Getting stats for addresse(s) %s\n", jsonBody.Addresses)
+	start := time.Now()
 
-	type DBResult struct {
-		Height_id  int     `json:"height_id"`
-		Blockhash  string  `json:"blockhash"`
-		Epoch      int     `json:"epoch"`
-		Coins      float64 `json:"coins"`
-		Miningaddr string  `json:"miningaddr"`
+	// Fill up HourStats array with all hours for today...
+	hoursToday := getCurrentTZHour(jsonBody.TZOffset)
+	for i := 0; i <= hoursToday; i++ {
+		curHour := i - hoursToday
+		startEpoch := getTZHourStart(jsonBody.TZOffset, curHour)
+		endEpoch := startEpoch + 3600
+		var thisHour HourStat
+
+		thisHour.Coins = getCoinsInEpochRange(startEpoch, endEpoch, jsonBody.Addresses)
+		thisHour.ChainCoins = getCoinsInEpochRange(startEpoch, endEpoch, "")
+		thisHour.WinPercent = thisHour.Coins * 100.0 / thisHour.ChainCoins
+		thisHour.Hour = i
+		hourStats[i] = thisHour
+
 	}
 
-	// Execute the query
-	results, err := db.Query("select height_id, blockhash, epoch, coins, miningaddr from stats where miningaddr in (" + jsonBody.Addresses + ")")
-	if err != nil {
-		panic(err.Error()) // proper error handling instead of panic in your app
+	type DayStat struct {
+		Day        string
+		Coins      float64
+		ChainCoins float64
+		WinPercent float64
 	}
 
+	var dayStats = make(map[int]DayStat)
+
+	//	Fill up days...
+	numDays := 3
+	for i := 0; i <= numDays; i++ {
+		curDay := i - numDays
+		startEpoch := getTZDayStart(jsonBody.TZOffset, curDay)
+		endEpoch := startEpoch + 86400
+		var thisDay DayStat
+
+		thisDay.Coins = getCoinsInEpochRange(startEpoch, endEpoch, jsonBody.Addresses)
+		thisDay.ChainCoins = getCoinsInEpochRange(startEpoch, endEpoch, "")
+		thisDay.WinPercent = thisDay.Coins * 100.0 / thisDay.ChainCoins
+		formattedTime := time.Unix(startEpoch, 0).Format("2006-01-02")
+		thisDay.Day = formattedTime
+		dayStats[curDay] = thisDay
+	}
+
+	type ResponseStats struct {
+		HourlyStats         map[int]HourStat
+		DailyStats          map[int]DayStat
+		ProjectedCoinsToday float64
+	}
+
+	secondsSoFarToday := float64(time.Now().Unix()-getTZDayStart(jsonBody.TZOffset, 0)) + 1.0
+
+	var thisResponse ResponseStats
+	thisResponse.ProjectedCoinsToday = dayStats[0].Coins * (86400.0 / secondsSoFarToday)
+	thisResponse.HourlyStats = hourStats
+	thisResponse.DailyStats = dayStats
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusCreated)
+
+	elapsed := time.Since(start)
+	log.Printf("RPC Execution time: %s", elapsed)
+
+	json.NewEncoder(rw).Encode(thisResponse)
+}
+
+type statsForRange struct {
+	MyCoins  float64 // Coins for addresses in range
+	AllCoins float64 // ALL coins mined in range
+	MyPerc   float64 // my percent of all coins for range
+}
+
+// Get the number of coins in a given epoch range. If addresses is passed, limit count to coins
+// for those addresses. If not then just get all mined coins in range count...
+func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) float64 {
+	addrsToCheck := strings.Split(addresses, ",")
 	numCoins := 0.0
-	for results.Next() {
-		var dbResult DBResult
-		// for each row, scan the result into our tag composite object
-		err = results.Scan(&dbResult.Height_id, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
-		if err != nil {
-			panic(err.Error()) // proper error handling instead of panic in your app
+	for _, block := range blockMap {
+		if len(addrsToCheck) > 0 && len(addrsToCheck[0]) > 0 {
+			if contains(addrsToCheck, block.Addr) {
+				if startEpoch < int64(block.Time) && int64(block.Time) < endEpoch {
+					numCoins += block.Coins
+				}
+			}
+		} else {
+			if startEpoch < int64(block.Time) && int64(block.Time) < endEpoch {
+				numCoins += block.Coins
+			}
 		}
-		numCoins += dbResult.Coins
 	}
 
-	fmt.Printf("Total Coins for addrs: %.2f\n", numCoins)
-
+	return numCoins
 }
 
 func epochToString(epoch int) string {
@@ -442,8 +618,17 @@ func getTransInfo(blockInfo BlockInformation) BlockInformation {
 		return blockInfo
 	}
 
+	if myTrans.Result.Vout[0].Value > 2.0 {
+		fmt.Printf("Coinbase value %s, coins %.2f\n", myTrans.Result.Vin[0].Coinbase, myTrans.Result.Vout[0].Value)
+	}
+
 	blockInfo.Addr = myTrans.Result.Vout[0].ScriptPubKey.Address
-	blockInfo.Coins = myTrans.Result.Vout[0].Value
+	// TODO: CHECK THIS, will non-mine transactions just have no string here?
+	if len(myTrans.Result.Vin[0].Coinbase) > 0 {
+		blockInfo.Coins = myTrans.Result.Vout[0].Value
+	} else {
+		blockInfo.Coins = 0.0 // If it wasn't a MINED transaction, don't count the coins!
+	}
 
 	return blockInfo
 
