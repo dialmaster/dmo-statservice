@@ -47,13 +47,20 @@ func main() {
 	blockHistoryDepth = 100000
 
 	db, dbErr = sql.Open("mysql", c.ServiceDBUser+":"+c.ServiceDBPass+"@tcp("+c.ServiceDBIP+":"+c.ServiceDBPort+")/"+c.ServiceDBName)
+	// Truly a fatal error.
 	if dbErr != nil {
 		panic(dbErr.Error())
 	}
 	defer db.Close()
 	fmt.Printf("Connected to DB: %s\n", c.ServiceDBName)
 
-	currentHeight = getCurrentHeight()
+	getDBHeight()
+
+	currentHeight, err := getCurrentHeight()
+	if err != nil {
+		fmt.Printf("Unable to connect to node, using DB cache only, height %d: Error %s", currentDBHeight, err)
+		currentHeight = currentDBHeight
+	}
 	fmt.Printf("Current block height from node: %d\n", currentHeight)
 
 	fmt.Printf("Initializing...\n")
@@ -75,6 +82,28 @@ func main() {
 		}
 	}()
 	handleRequests()
+
+}
+
+func getDBHeight() {
+	type DBResult struct {
+		height_id int `json:"height_id"`
+	}
+
+	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
+	// Fatal, we need our DB
+	if err != nil {
+		panic(err.Error())
+	}
+
+	for results.Next() {
+		var dbResult DBResult
+		err = results.Scan(&dbResult.height_id)
+		if err != nil {
+			panic(err.Error())
+		}
+		currentDBHeight = dbResult.height_id
+	}
 
 }
 
@@ -147,29 +176,27 @@ func handleRequests() {
 
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
 func updateStats() {
+	var err error
 
-	currentHeight = getCurrentHeight()
-	fmt.Printf("Current block height from node: %d\n", currentHeight)
+	currentHeight, err = getCurrentHeight()
+
+	var noNode = false
+	if err != nil {
+		currentHeight = currentDBHeight
+		fmt.Printf("Unable to connect to node, using cached DB data\n")
+		noNode = true
+	} else {
+
+		fmt.Printf("Current block height from node: %d\n", currentHeight)
+	}
 
 	type DBResult struct {
 		height_id int `json:"height_id"`
 	}
 
-	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
-	if err != nil {
-		panic(err.Error())
-	}
+	getDBHeight()
 
-	for results.Next() {
-		var dbResult DBResult
-		err = results.Scan(&dbResult.height_id)
-		if err != nil {
-			panic(err.Error())
-		}
-		currentDBHeight = dbResult.height_id
-	}
-
-	results, err = db.Query("select height_id from stats order by height_id asc limit 0,1")
+	results, err := db.Query("select height_id from stats order by height_id asc limit 0,1")
 	if err != nil {
 		panic(err.Error())
 	}
@@ -191,6 +218,9 @@ func updateStats() {
 		startHeight = currentDBHeight + 1
 	}
 
+	if noNode {
+		return
+	}
 	blockIdToGet := startHeight
 	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIdToGet)
 
@@ -394,14 +424,15 @@ func getFullBlockInfoForHeight(height int) BlockInformation {
 	return myBlockInfo
 }
 
-func getCurrentHeight() int {
+func getCurrentHeight() (int, error) {
 	type blockHeightResult struct {
 		ID     string `json:"id"`
 		Result int    `json:"result"`
-		error  string `json:"error"`
 	}
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
 	reqUrl := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
@@ -410,20 +441,26 @@ func getCurrentHeight() int {
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblockcount", "params": { }}`)
 	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	if err != nil {
+		return 0, err
+	}
+
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
-		return 0
+		return 0, err
 	}
 	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
 
 	var myBlockHeight blockHeightResult
 
 	if err := json.Unmarshal(bodyText, &myBlockHeight); err != nil {
-		return 0
+		return 0, err
 	}
-	return myBlockHeight.Result
+	return myBlockHeight.Result, nil
 }
 
 // Step one, get the block hash for the block number
@@ -432,7 +469,6 @@ func getBlockHash(blockInfo BlockInformation) BlockInformation {
 	type blockHashResult struct {
 		ID     string `json:"id"`
 		Result string `json:"result"`
-		error  string `json:"error"`
 	}
 
 	client := &http.Client{}
@@ -448,7 +484,6 @@ func getBlockHash(blockInfo BlockInformation) BlockInformation {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
-		//return "Unable to make request to getBlockHash: " + err.Error()
 		return blockInfo
 	}
 	bodyText, err := io.ReadAll(resp.Body)
@@ -456,7 +491,6 @@ func getBlockHash(blockInfo BlockInformation) BlockInformation {
 	var myBlockHash blockHashResult
 
 	if err := json.Unmarshal(bodyText, &myBlockHash); err != nil {
-		//return "Unable to decode json from getblockhash request: " + err.Error()
 		return blockInfo
 	}
 	blockInfo.Hash = myBlockHash.Result
