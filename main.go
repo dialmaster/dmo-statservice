@@ -38,11 +38,13 @@ var currentHeight int
 var currentDBHeight int
 var lowestDBHeight int
 var blockHistoryDepth int
+var globalNetHash float64
 
 func main() {
 	c.getConf()
 	currentDBHeight = 0
 	lowestDBHeight = 5000000000
+	globalNetHash = 0.0
 
 	blockHistoryDepth = 100000
 
@@ -221,6 +223,12 @@ func updateStats() {
 	if noNode {
 		return
 	}
+
+	netHash, err2 := getCurrentNethash()
+	if err2 == nil {
+		globalNetHash = netHash
+	}
+
 	blockIdToGet := startHeight
 	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIdToGet)
 
@@ -337,11 +345,13 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 		HourlyStats         []HourStat
 		DailyStats          []DayStat
 		ProjectedCoinsToday float64
+		NetHash             float64
 	}
 
 	secondsSoFarToday := float64(time.Now().Unix()-getTZDayStart(jsonBody.TZOffset, 0)) + 1.0
 
 	var thisResponse ResponseStats
+	thisResponse.NetHash = globalNetHash
 	thisResponse.ProjectedCoinsToday = dayStats[len(dayStats)-1].Coins * (86400.0 / secondsSoFarToday)
 	thisResponse.HourlyStats = hourStats
 	thisResponse.DailyStats = dayStats
@@ -422,6 +432,44 @@ func getFullBlockInfoForHeight(height int) BlockInformation {
 	myBlockInfo = getBlock(myBlockInfo)
 	myBlockInfo = getTransInfo(myBlockInfo)
 	return myBlockInfo
+}
+
+func getCurrentNethash() (float64, error) {
+	type netHashResult struct {
+		Result float64 `json:"result"`
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	reqUrl := url.URL{
+		Scheme: "http",
+		Host:   c.NodeIP + ":" + c.NodePort,
+		Path:   "",
+	}
+
+	var data = bytes.NewBufferString(`{"id": 1,"method": "getnetworkhashps","params": {"nblocks": 20}}`)
+	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	if err != nil {
+		return 0, err
+	}
+
+	req.SetBasicAuth(c.NodeUser, c.NodePass)
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	var myNetHash netHashResult
+
+	if err := json.Unmarshal(bodyText, &myNetHash); err != nil {
+		return 0, err
+	}
+	return myNetHash.Result, nil
 }
 
 func getCurrentHeight() (int, error) {
