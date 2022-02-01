@@ -448,7 +448,7 @@ func getCurrentNethash() (float64, error) {
 		Path:   "",
 	}
 
-	var data = bytes.NewBufferString(`{"id": 1,"method": "getnetworkhashps","params": {"nblocks": 20}}`)
+	var data = bytes.NewBufferString(`{"id": 1,"method": "getnetworkhashps","params": {"nblocks": 100}}`)
 	req, err := http.NewRequest("POST", reqUrl.String(), data)
 	if err != nil {
 		return 0, err
