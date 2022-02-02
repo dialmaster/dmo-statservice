@@ -80,8 +80,6 @@ func main() {
 	loadDBStatsToMemory()
 	fmt.Printf("DB cache to memory complete!\n")
 
-	router.GET("/getminingstats", getAddrMiningStatsRPC)
-	router.Run(":" + c.ServicePort)
 
 	// Grab new block info from the node every minute
 	go func() {
@@ -91,6 +89,9 @@ func main() {
 			updateStats()
 		}
 	}()
+
+	router.GET("/getminingstats", getAddrMiningStatsRPC)
+	router.Run(":" + c.ServicePort)
 
 }
 
