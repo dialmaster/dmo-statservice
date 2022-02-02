@@ -305,7 +305,11 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 
 		thisHour.Coins = getCoinsInEpochRange(startEpoch, endEpoch, jsonBody.Addresses)
 		thisHour.ChainCoins = getCoinsInEpochRange(startEpoch, endEpoch, "")
-		thisHour.WinPercent = thisHour.Coins * 100.0 / thisHour.ChainCoins
+		if thisHour.Coins > 0.1 && thisHour.ChainCoins > 0.1 {
+			thisHour.WinPercent = thisHour.Coins * 100.0 / thisHour.ChainCoins
+		} else {
+			thisHour.WinPercent = 0.0
+		}
 		thisHour.Hour = i
 		hourStats = append(hourStats, thisHour)
 
@@ -335,7 +339,12 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 
 		thisDay.Coins = getCoinsInEpochRange(startEpoch, endEpoch, jsonBody.Addresses)
 		thisDay.ChainCoins = getCoinsInEpochRange(startEpoch, endEpoch, "")
-		thisDay.WinPercent = thisDay.Coins * 100.0 / thisDay.ChainCoins
+
+		if thisDay.Coins > 0.1 && thisDay.ChainCoins > 0.1 {
+			thisDay.WinPercent = thisDay.Coins * 100.0 / thisDay.ChainCoins
+		} else {
+			thisDay.WinPercent = 0.0
+		}
 		formattedTime := time.Unix(startEpoch, 0).Format("2006-01-02")
 		thisDay.Day = formattedTime
 		dayStats = append(dayStats, thisDay)
