@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -41,6 +43,9 @@ var blockHistoryDepth int
 var globalNetHash float64
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.Default()
+
 	c.getConf()
 	currentDBHeight = 0
 	lowestDBHeight = 5000000000
@@ -75,6 +80,9 @@ func main() {
 	loadDBStatsToMemory()
 	fmt.Printf("DB cache to memory complete!\n")
 
+	router.GET("/getminingstats", getAddrMiningStatsRPC)
+	router.Run(":" + c.ServicePort)
+
 	// Grab new block info from the node every minute
 	go func() {
 		fmt.Printf("Service is RUNNING on port %s\n", c.ServicePort)
@@ -83,7 +91,6 @@ func main() {
 			updateStats()
 		}
 	}()
-	handleRequests()
 
 }
 
@@ -167,13 +174,6 @@ func getCurrentTZHour(tzOffset int) int {
 	loc := time.FixedZone("MonitorZone", tzOffset)
 	myTime := time.Now().In(loc)
 	return myTime.Hour()
-}
-
-func handleRequests() {
-	http.HandleFunc("/getminingstats", getAddrMiningStatsRPC)
-
-	log.Fatal(http.ListenAndServe(":"+c.ServicePort, nil))
-
 }
 
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
@@ -277,12 +277,12 @@ func contains(s []string, str string) bool {
 }
 */
 // TODO: Do not allow more than 10 receiving addresses
-func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
-	decoder := json.NewDecoder(req.Body)
+func getAddrMiningStatsRPC(c *gin.Context) {
 	var jsonBody mineRpc
-	err := decoder.Decode(&jsonBody)
-	if err != nil {
-		panic(err)
+
+	if err := c.BindJSON(&jsonBody); err != nil {
+		fmt.Printf("Got unhandled (bad) request!")
+		return
 	}
 
 	type HourStat struct {
@@ -293,8 +293,8 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	var hourStats []HourStat
-	fmt.Printf("Getting stats for addresse(s) %s\n", jsonBody.Addresses)
-	start := time.Now()
+	ipFrom := c.ClientIP()
+	fmt.Printf("Request from %s: Getting stats for addresse(s) %s\n", ipFrom, jsonBody.Addresses)
 
 	hoursToday := getCurrentTZHour(jsonBody.TZOffset)
 	for i := 0; i <= hoursToday; i++ {
@@ -355,13 +355,8 @@ func getAddrMiningStatsRPC(rw http.ResponseWriter, req *http.Request) {
 	thisResponse.ProjectedCoinsToday = dayStats[len(dayStats)-1].Coins * (86400.0 / secondsSoFarToday)
 	thisResponse.HourlyStats = hourStats
 	thisResponse.DailyStats = dayStats
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusCreated)
 
-	elapsed := time.Since(start)
-	log.Printf("RPC Execution time: %s", elapsed)
-
-	json.NewEncoder(rw).Encode(thisResponse)
+	c.JSON(200, thisResponse)
 }
 
 // Get lowest and highest block for epoch range
