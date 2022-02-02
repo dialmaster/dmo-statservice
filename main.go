@@ -80,7 +80,6 @@ func main() {
 	loadDBStatsToMemory()
 	fmt.Printf("DB cache to memory complete!\n")
 
-
 	// Grab new block info from the node every minute
 	go func() {
 		fmt.Printf("Service is RUNNING on port %s\n", c.ServicePort)
@@ -347,7 +346,11 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 			thisDay.WinPercent = 0.0
 		}
 		formattedTime := time.Unix(startEpoch, 0).Format("2006-01-02")
-		thisDay.Day = formattedTime
+		if i < numDays {
+			thisDay.Day = formattedTime
+		} else {
+			thisDay.Day = "Today"
+		}
 		dayStats = append(dayStats, thisDay)
 	}
 
