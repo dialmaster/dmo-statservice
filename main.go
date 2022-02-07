@@ -22,7 +22,7 @@ import (
 var c conf
 var mutex = &sync.Mutex{}
 
-type BlockInformation struct {
+type blockInformation struct {
 	Time   int
 	Height int
 	TxId   string
@@ -31,7 +31,7 @@ type BlockInformation struct {
 	Coins  float64
 }
 
-var blockMap = make(map[int]BlockInformation)
+var blockMap = make(map[int]blockInformation)
 
 var db *sql.DB
 var dbErr error
@@ -136,7 +136,7 @@ func loadDBStatsToMemory() {
 		if err != nil {
 			panic(err.Error())
 		}
-		var myStatResult BlockInformation
+		var myStatResult blockInformation
 		myStatResult.Addr = dbResult.Miningaddr
 		myStatResult.Coins = dbResult.Coins
 		myStatResult.Height = dbResult.Height_id
@@ -232,7 +232,7 @@ func updateStats() {
 	blockIdToGet := startHeight
 	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIdToGet)
 
-	var myBlockInfo BlockInformation
+	var myBlockInfo blockInformation
 	for blockIdToGet < currentHeight {
 		myBlockInfo = getFullBlockInfoForHeight(blockIdToGet)
 		mutex.Lock()
@@ -435,8 +435,8 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 	return numCoins
 }
 
-func getFullBlockInfoForHeight(height int) BlockInformation {
-	var myBlockInfo BlockInformation
+func getFullBlockInfoForHeight(height int) blockInformation {
+	var myBlockInfo blockInformation
 	myBlockInfo.Height = height
 	myBlockInfo = getBlockHash(myBlockInfo)
 	myBlockInfo = getBlock(myBlockInfo)
@@ -522,7 +522,7 @@ func getCurrentHeight() (int, error) {
 }
 
 // Step one, get the block hash for the block number
-func getBlockHash(blockInfo BlockInformation) BlockInformation {
+func getBlockHash(blockInfo blockInformation) blockInformation {
 
 	type blockHashResult struct {
 		ID     string `json:"id"`
@@ -557,7 +557,7 @@ func getBlockHash(blockInfo BlockInformation) BlockInformation {
 }
 
 // Step two, get the block for the hash... returns a txid IF IT WAS A MINED BLOCK
-func getBlock(blockInfo BlockInformation) BlockInformation {
+func getBlock(blockInfo blockInformation) blockInformation {
 	type blockResult struct {
 		Result struct {
 			Hash              string   `json:"hash"`
@@ -619,7 +619,7 @@ type MinedTxInfo struct {
 }
 
 // Step three, get the information I care about
-func getTransInfo(blockInfo BlockInformation) BlockInformation {
+func getTransInfo(blockInfo blockInformation) blockInformation {
 
 	var myInfo MinedTxInfo
 
