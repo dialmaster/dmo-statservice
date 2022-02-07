@@ -238,7 +238,9 @@ func updateStats() {
 		mutex.Lock()
 		blockMap[myBlockInfo.Height] = myBlockInfo // Add to memory cache
 		mutex.Unlock()
-		insert, err := db.Query("INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES ( " + strconv.Itoa(blockIdToGet) + ", '" + myBlockInfo.Hash + "', " + strconv.Itoa(myBlockInfo.Time) + ", " + strconv.FormatFloat(myBlockInfo.Coins, 'E', -1, 64) + ",'" + myBlockInfo.Addr + "')")
+		insert, err := db.Query(`
+			INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES (?, ?, ?, ?, ?)`,
+			blockIdToGet, myBlockInfo.Hash, myBlockInfo.Time, myBlockInfo.Coins, myBlockInfo.Addr)
 
 		if err != nil {
 			panic(err.Error())
