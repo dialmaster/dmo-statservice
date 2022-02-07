@@ -90,8 +90,10 @@ func main() {
 	}()
 
 	router.GET("/getminingstats", getAddrMiningStatsRPC)
-	router.Run(":" + c.ServicePort)
-
+	err = router.Run(":" + c.ServicePort)
+	if err != nil {
+		log.Fatalf("Unable to start router: %s", err)
+	}
 }
 
 func getDBHeight() {
@@ -538,6 +540,10 @@ func getBlockHash(blockInfo blockInformation) blockInformation {
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblockhash", "params": { "height": ` + strconv.Itoa(blockInfo.Height) + `}}`)
 	req, err := http.NewRequest("POST", reqURL.String(), data)
+	if err != nil {
+		log.Fatalf("Unable to construct getblockhash request to %q: %s", reqURL.String(), err)
+	}
+
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -545,6 +551,9 @@ func getBlockHash(blockInfo blockInformation) blockInformation {
 		return blockInfo
 	}
 	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Unable to read response body for getblockhash request: %s", err)
+	}
 
 	var myBlockHash blockHashResult
 
@@ -593,6 +602,9 @@ func getBlock(blockInfo blockInformation) blockInformation {
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblock", "params": { "blockhash": "` + blockInfo.Hash + `"}}`)
 	req, err := http.NewRequest("POST", reqURL.String(), data)
+	if err != nil {
+		log.Fatalf("Unable to construct getblock request to %q: %s", reqURL.String(), err)
+	}
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -601,6 +613,9 @@ func getBlock(blockInfo blockInformation) blockInformation {
 	}
 
 	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Unable to read response body for getblock request: %s", err)
+	}
 
 	var myBlock blockResult
 
@@ -670,6 +685,10 @@ func getTransInfo(blockInfo blockInformation) blockInformation {
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getrawtransaction", "params": { "blockhash": "` + blockInfo.Hash + `", "txid": "` + blockInfo.TxID + `", "verbose": true}}`)
 	req, err := http.NewRequest("POST", reqURL.String(), data)
+	if err != nil {
+		log.Fatalf("Unable to construct getrawtransaction request to %q: %s", reqURL.String(), err)
+	}
+
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -677,6 +696,10 @@ func getTransInfo(blockInfo blockInformation) blockInformation {
 		return blockInfo
 	}
 	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalf("Unable to read getrawtransaction body: %s", err)
+	}
+
 	//fmt.Printf("Raw trans info: %s\n", bodyText)
 
 	var myTrans TransResponse
