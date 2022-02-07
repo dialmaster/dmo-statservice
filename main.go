@@ -25,7 +25,7 @@ var mutex = &sync.Mutex{}
 type blockInformation struct {
 	Time   int
 	Height int
-	TxId   string
+	TxID   string
 	Hash   string
 	Addr   string
 	Coins  float64
@@ -96,7 +96,7 @@ func main() {
 
 func getDBHeight() {
 	type DBResult struct {
-		height_id int `json:"height_id"`
+		HeightID int `json:"height_id"`
 	}
 
 	results, err := db.Query("select height_id from stats order by height_id desc limit 0,1")
@@ -107,18 +107,18 @@ func getDBHeight() {
 
 	for results.Next() {
 		var dbResult DBResult
-		err = results.Scan(&dbResult.height_id)
+		err = results.Scan(&dbResult.HeightID)
 		if err != nil {
 			panic(err.Error())
 		}
-		currentDBHeight = dbResult.height_id
+		currentDBHeight = dbResult.HeightID
 	}
 
 }
 
 func loadDBStatsToMemory() {
 	type DBResult struct {
-		Height_id  int     `json:"height_id"`
+		HeightID   int     `json:"height_id"`
 		Blockhash  string  `json:"blockhash"`
 		Epoch      int     `json:"epoch"`
 		Coins      float64 `json:"coins"`
@@ -132,18 +132,18 @@ func loadDBStatsToMemory() {
 
 	for results.Next() {
 		var dbResult DBResult
-		err = results.Scan(&dbResult.Height_id, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
+		err = results.Scan(&dbResult.HeightID, &dbResult.Blockhash, &dbResult.Epoch, &dbResult.Coins, &dbResult.Miningaddr)
 		if err != nil {
 			panic(err.Error())
 		}
 		var myStatResult blockInformation
 		myStatResult.Addr = dbResult.Miningaddr
 		myStatResult.Coins = dbResult.Coins
-		myStatResult.Height = dbResult.Height_id
+		myStatResult.Height = dbResult.HeightID
 		myStatResult.Hash = dbResult.Blockhash
 		myStatResult.Time = dbResult.Epoch
 		mutex.Lock()
-		blockMap[dbResult.Height_id] = myStatResult
+		blockMap[dbResult.HeightID] = myStatResult
 		mutex.Unlock()
 	}
 
@@ -193,7 +193,7 @@ func updateStats() {
 	}
 
 	type DBResult struct {
-		height_id int `json:"height_id"`
+		HeightID int `json:"height_id"`
 	}
 
 	getDBHeight()
@@ -205,11 +205,11 @@ func updateStats() {
 
 	for results.Next() {
 		var dbResult DBResult
-		err = results.Scan(&dbResult.height_id)
+		err = results.Scan(&dbResult.HeightID)
 		if err != nil {
 			panic(err.Error()) // proper error handling instead of panic in your app
 		}
-		lowestDBHeight = dbResult.height_id
+		lowestDBHeight = dbResult.HeightID
 	}
 
 	var startHeight = currentDBHeight
@@ -229,34 +229,34 @@ func updateStats() {
 		globalNetHash = netHash
 	}
 
-	blockIdToGet := startHeight
-	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIdToGet)
+	blockIDToGet := startHeight
+	fmt.Printf("Grabbing %d new blocks from node...\n", currentHeight-blockIDToGet)
 
 	var myBlockInfo blockInformation
-	for blockIdToGet < currentHeight {
-		myBlockInfo = getFullBlockInfoForHeight(blockIdToGet)
+	for blockIDToGet < currentHeight {
+		myBlockInfo = getFullBlockInfoForHeight(blockIDToGet)
 		mutex.Lock()
 		blockMap[myBlockInfo.Height] = myBlockInfo // Add to memory cache
 		mutex.Unlock()
 		insert, err := db.Query(`
 			INSERT INTO stats (height_id, blockhash, epoch, coins, miningaddr) VALUES (?, ?, ?, ?, ?)`,
-			blockIdToGet, myBlockInfo.Hash, myBlockInfo.Time, myBlockInfo.Coins, myBlockInfo.Addr)
+			blockIDToGet, myBlockInfo.Hash, myBlockInfo.Time, myBlockInfo.Coins, myBlockInfo.Addr)
 
 		if err != nil {
 			panic(err.Error())
 		}
 		insert.Close()
 
-		blockIdToGet += 1
-		if (blockIdToGet % 500) == 0 {
-			fmt.Printf("Grabbed up to block id %d\n", blockIdToGet)
+		blockIDToGet++
+		if (blockIDToGet % 500) == 0 {
+			fmt.Printf("Grabbed up to block id %d\n", blockIDToGet)
 		}
 	}
 	fmt.Printf("DB update from Node is complete!\n")
 
 }
 
-type mineRpc struct {
+type mineRPC struct {
 	Addresses string
 	TZOffset  int
 	NumDays   int
@@ -280,7 +280,7 @@ func contains(s []string, str string) bool {
 */
 // TODO: Do not allow more than 10 receiving addresses
 func getAddrMiningStatsRPC(c *gin.Context) {
-	var jsonBody mineRpc
+	var jsonBody mineRPC
 
 	if err := c.BindJSON(&jsonBody); err != nil {
 		fmt.Printf("Got unhandled (bad) request!")
@@ -452,14 +452,14 @@ func getCurrentNethash() (float64, error) {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
-	reqUrl := url.URL{
+	reqURL := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
 		Path:   "",
 	}
 
 	var data = bytes.NewBufferString(`{"id": 1,"method": "getnetworkhashps","params": {"nblocks": 100}}`)
-	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	req, err := http.NewRequest("POST", reqURL.String(), data)
 	if err != nil {
 		return 0, err
 	}
@@ -491,14 +491,14 @@ func getCurrentHeight() (int, error) {
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
-	reqUrl := url.URL{
+	reqURL := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
 		Path:   "",
 	}
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblockcount", "params": { }}`)
-	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	req, err := http.NewRequest("POST", reqURL.String(), data)
 	if err != nil {
 		return 0, err
 	}
@@ -530,14 +530,14 @@ func getBlockHash(blockInfo blockInformation) blockInformation {
 	}
 
 	client := &http.Client{}
-	reqUrl := url.URL{
+	reqURL := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
 		Path:   "",
 	}
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblockhash", "params": { "height": ` + strconv.Itoa(blockInfo.Height) + `}}`)
-	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	req, err := http.NewRequest("POST", reqURL.String(), data)
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -585,14 +585,14 @@ func getBlock(blockInfo blockInformation) blockInformation {
 	}
 
 	client := &http.Client{}
-	reqUrl := url.URL{
+	reqURL := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
 		Path:   "",
 	}
 
 	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getblock", "params": { "blockhash": "` + blockInfo.Hash + `"}}`)
-	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	req, err := http.NewRequest("POST", reqURL.String(), data)
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -609,11 +609,11 @@ func getBlock(blockInfo blockInformation) blockInformation {
 	}
 
 	blockInfo.Time = myBlock.Result.Time
-	blockInfo.TxId = myBlock.Result.Tx[0]
+	blockInfo.TxID = myBlock.Result.Tx[0]
 	return blockInfo
 }
 
-type MinedTxInfo struct {
+type minedTxInfo struct {
 	miningAddr string
 	coins      float64
 }
@@ -621,7 +621,7 @@ type MinedTxInfo struct {
 // Step three, get the information I care about
 func getTransInfo(blockInfo blockInformation) blockInformation {
 
-	var myInfo MinedTxInfo
+	var myInfo minedTxInfo
 
 	myInfo.miningAddr = "professorminingaddr"
 	myInfo.coins = 1.001
@@ -662,14 +662,14 @@ func getTransInfo(blockInfo blockInformation) blockInformation {
 	}
 
 	client := &http.Client{}
-	reqUrl := url.URL{
+	reqURL := url.URL{
 		Scheme: "http",
 		Host:   c.NodeIP + ":" + c.NodePort,
 		Path:   "",
 	}
 
-	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getrawtransaction", "params": { "blockhash": "` + blockInfo.Hash + `", "txid": "` + blockInfo.TxId + `", "verbose": true}}`)
-	req, err := http.NewRequest("POST", reqUrl.String(), data)
+	var data = bytes.NewBufferString(`{"jsonrpc":"1.0","id":"curltest","method":"getrawtransaction", "params": { "blockhash": "` + blockInfo.Hash + `", "txid": "` + blockInfo.TxID + `", "verbose": true}}`)
+	req, err := http.NewRequest("POST", reqURL.String(), data)
 	req.SetBasicAuth(c.NodeUser, c.NodePass)
 	resp, err := client.Do(req)
 	if err != nil {
