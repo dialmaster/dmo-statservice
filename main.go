@@ -151,30 +151,22 @@ func loadDBStatsToMemory() {
 
 }
 
-// Take a TZ and a day offset from today (0 for today, -1 for yesterday)
-// Return the unix epoch when that day started
-func getTZDayStart(tzOffset int, dayOffset int) int64 {
-	loc := time.FixedZone("MonitorZone", tzOffset)
-	myTime := time.Now().In(loc)
+// ALL TIMES IN UTC
+
+func getDayStart(dayOffset int) int64 {
+	myTime := time.Now().UTC()
 	myTime = myTime.AddDate(0, 0, dayOffset)
-	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), 0, 0, 0, 0, loc).Unix()
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), 0, 0, 0, 0, time.UTC).Unix()
 }
 
-// Take a TZ and an hour offset from this hour, return the unix epoch when that hour started
-// (0 for beginning of this hour, -1 for beginning of the last hour)
-// Take a TZ and a day offset from today (0 for today, -1 for yesterday)
-// Return the unix epoch when that day started
-func getTZHourStart(tzOffset int, hourOffset int) int64 {
-	loc := time.FixedZone("MonitorZone", tzOffset)
-	myTime := time.Now().In(loc)
+func getHourStart(hourOffset int) int64 {
+	myTime := time.Now().UTC()
 	myTime = myTime.Add(time.Hour * time.Duration(hourOffset))
-	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), myTime.Hour(), 0, 0, 0, loc).Unix()
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), myTime.Hour(), 0, 0, 0, time.UTC).Unix()
 }
 
-// Get the current hour of the day in the timezone passed
-func getCurrentTZHour(tzOffset int) int {
-	loc := time.FixedZone("MonitorZone", tzOffset)
-	myTime := time.Now().In(loc)
+func getCurrentHour() int {
+	myTime := time.Now().UTC()
 	return myTime.Hour()
 }
 
@@ -260,7 +252,6 @@ func updateStats() {
 
 type mineRPC struct {
 	Addresses string
-	TZOffset  int
 	NumDays   int
 }
 
@@ -277,7 +268,6 @@ func contains(s []string, str string) bool {
 /* Accept json request like:
 {
     "Addresses": "dy1qpfr5yhdkgs6jyuk945y23pskdxmy9ajefczsvm,kljdsalkjsadlksajd",
-	"TZOffset": -28800
 }
 */
 // TODO: Do not allow more than 10 receiving addresses
@@ -300,10 +290,10 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 	ipFrom := c.ClientIP()
 	fmt.Printf("Request from %s: Getting stats for addresse(s) %s\n", ipFrom, jsonBody.Addresses)
 
-	hoursToday := getCurrentTZHour(jsonBody.TZOffset)
+	hoursToday := getCurrentHour()
 	for i := 0; i <= hoursToday; i++ {
 		curHour := i - hoursToday
-		startEpoch := getTZHourStart(jsonBody.TZOffset, curHour)
+		startEpoch := getHourStart(curHour)
 		endEpoch := startEpoch + 3600
 		var thisHour HourStat
 
@@ -337,7 +327,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 	}
 	for i := 0; i <= numDays; i++ {
 		curDay := i - numDays
-		startEpoch := getTZDayStart(jsonBody.TZOffset, curDay)
+		startEpoch := getDayStart(curDay)
 		endEpoch := startEpoch + 86400
 		var thisDay DayStat
 
@@ -349,7 +339,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 		} else {
 			thisDay.WinPercent = 0.0
 		}
-		formattedTime := time.Unix(startEpoch, 0).Format("2006-01-02")
+		formattedTime := time.Unix(startEpoch, 0).UTC().Format("2006-01-02")
 		if i < numDays {
 			thisDay.Day = formattedTime
 		} else {
@@ -365,7 +355,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 		NetHash             float64
 	}
 
-	secondsSoFarToday := float64(time.Now().Unix()-getTZDayStart(jsonBody.TZOffset, 0)) + 1.0
+	secondsSoFarToday := float64(time.Now().Unix()-getDayStart(0)) + 1.0
 
 	var thisResponse ResponseStats
 	thisResponse.NetHash = globalNetHash
