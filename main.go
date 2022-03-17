@@ -33,6 +33,14 @@ type blockInformation struct {
 
 var blockMap = make(map[int]blockInformation)
 
+type pogoInfoForAddr struct {
+	lastUpdate   int64
+	coinsAtTimes map[int64]float64
+}
+
+// Key is a receiving addr
+var pogoCoins = make(map[string]pogoInfoForAddr)
+
 var db *sql.DB
 var dbErr error
 
@@ -170,6 +178,65 @@ func getCurrentHour() int {
 	return myTime.Hour()
 }
 
+// Make RPC to POGO and update pogoCoins
+func getPogoInfoForAddr(addr string) {
+
+	startEpoch := getHourStart(0)
+	if curVal, ok := pogoCoins[addr]; ok {
+		if curVal.lastUpdate > startEpoch {
+			fmt.Printf("No need to get new info from POGO!\n")
+			return
+		}
+	}
+
+	fmt.Printf("Getting new info from POGO!\n")
+	var newPogoInfoForAddr pogoInfoForAddr
+	var newCoinsAtTimes = make(map[int64]float64)
+	newPogoInfoForAddr.coinsAtTimes = newCoinsAtTimes
+	newPogoInfoForAddr.lastUpdate = time.Now().Unix()
+	pogoCoins[addr] = newPogoInfoForAddr
+
+	type PogoResp struct {
+		Combined struct {
+			UnpaidBalanceAtoms int `json:"UnpaidBalanceAtoms"`
+			RecentPayouts      []struct {
+				CreatedAt int `json:"CreatedAt"`
+				Atoms     int `json:"Atoms"`
+			} `json:"RecentPayouts"`
+		} `json:"combined"`
+	}
+
+	var thisPogo PogoResp
+
+	reqUrl := url.URL{
+		Scheme: "https",
+		Host:   "pogo.dmo-tools.com",
+		Path:   "api/v1/stats/" + addr,
+	}
+
+	resp, err := http.Get(reqUrl.String())
+	if err != nil {
+		log.Printf("Unable to make request to dmo-tools: %s", err.Error())
+		return
+	}
+	bodyText, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Unable to make request to dmo-tools: %s", err.Error())
+		return
+	}
+
+	if err := json.Unmarshal(bodyText, &thisPogo); err != nil {
+		log.Printf("Unable to make request to dmo-statservice: %s", err.Error())
+		return
+	}
+
+	// This is where I should populate
+	for _, payout := range thisPogo.Combined.RecentPayouts {
+		pogoCoins[addr].coinsAtTimes[int64(payout.CreatedAt)] = float64(payout.Atoms) / 100000000
+	}
+
+}
+
 // Load blocks from node up to current block. Do not expose RPC server until this is done. Display some output to user
 func updateStats() {
 	var err error
@@ -271,6 +338,8 @@ func contains(s []string, str string) bool {
 }
 */
 // TODO: Do not allow more than 10 receiving addresses
+// For each addr, call getPogoInfoForAddr if the last time it was updated for that addr is before the beginning of the current hour
+// When adding up coin counts, include the pogo info.
 func getAddrMiningStatsRPC(c *gin.Context) {
 	var jsonBody mineRPC
 
@@ -289,6 +358,11 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 	var hourStats []HourStat
 	ipFrom := c.ClientIP()
 	fmt.Printf("Request from %s: Getting stats for addresse(s) %s\n", ipFrom, jsonBody.Addresses)
+
+	addrsToCheck := strings.Split(jsonBody.Addresses, ",")
+	for i := 0; i < len(addrsToCheck); i++ {
+		getPogoInfoForAddr(addrsToCheck[i])
+	}
 
 	hoursToday := getCurrentHour()
 	for i := 0; i <= hoursToday; i++ {
@@ -407,6 +481,15 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 	numCoins := 0.0
 
 	lowest, highest := findBlocksForEpochRange(startEpoch, endEpoch)
+
+	// Add POGO counts for this epoch range here
+	for j := 0; j < len(addrsToCheck); j++ {
+		for pogoEpoch, coins := range pogoCoins[addrsToCheck[j]].coinsAtTimes {
+			if startEpoch <= pogoEpoch && pogoEpoch < endEpoch {
+				numCoins += coins
+			}
+		}
+	}
 
 	for i := lowest; i < highest; i++ {
 		if block, ok := blockMap[i]; ok {
