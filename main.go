@@ -234,8 +234,8 @@ func getPogoInfoForAddr(addr string) {
 
 	for _, payout := range thisPogo.Combined.RecentPayouts {
 		pogoCoins[addr].coinsAtTimes[int64(payout.CreatedAt)] = float64(payout.Atoms) / 100000000
-		pogoCoins[addr].coinsAtTimes[curEpoch] = float64(thisPogo.Combined.UnpaidBalanceAtoms) / 100000000
 	}
+	pogoCoins[addr].coinsAtTimes[curEpoch] = float64(thisPogo.Combined.UnpaidBalanceAtoms) / 100000000
 	mutex.Unlock()
 
 }
