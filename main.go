@@ -181,7 +181,7 @@ func getCurrentHour() int {
 // Make RPC to POGO and update pogoCoins
 func getPogoInfoForAddr(addr string) {
 
-	startEpoch := getHourStart(0)
+	startEpoch := getHourStart(0) + 60 // Wait 1 minute past the hour to get new data from POGO...
 	if curVal, ok := pogoCoins[addr]; ok {
 		if curVal.lastUpdate > startEpoch {
 			fmt.Printf("No need to get new info from POGO!\n")
@@ -194,6 +194,7 @@ func getPogoInfoForAddr(addr string) {
 	var newCoinsAtTimes = make(map[int64]float64)
 	newPogoInfoForAddr.coinsAtTimes = newCoinsAtTimes
 	newPogoInfoForAddr.lastUpdate = time.Now().Unix()
+	mutex.Lock()
 	pogoCoins[addr] = newPogoInfoForAddr
 
 	type PogoResp struct {
@@ -230,10 +231,10 @@ func getPogoInfoForAddr(addr string) {
 		return
 	}
 
-	// This is where I should populate
 	for _, payout := range thisPogo.Combined.RecentPayouts {
 		pogoCoins[addr].coinsAtTimes[int64(payout.CreatedAt)] = float64(payout.Atoms) / 100000000
 	}
+	mutex.Unlock()
 
 }
 
