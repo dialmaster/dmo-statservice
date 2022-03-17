@@ -182,8 +182,9 @@ func getCurrentHour() int {
 func getPogoInfoForAddr(addr string) {
 
 	startEpoch := getHourStart(0) + 60 // Wait 1 minute past the hour to get new data from POGO...
+	curEpoch := time.Now().UTC().Unix()
 	if curVal, ok := pogoCoins[addr]; ok {
-		if curVal.lastUpdate > startEpoch {
+		if curVal.lastUpdate > startEpoch && (curEpoch-curVal.lastUpdate) < 600 {
 			fmt.Printf("No need to get new info from POGO!\n")
 			return
 		}
@@ -233,6 +234,7 @@ func getPogoInfoForAddr(addr string) {
 
 	for _, payout := range thisPogo.Combined.RecentPayouts {
 		pogoCoins[addr].coinsAtTimes[int64(payout.CreatedAt)] = float64(payout.Atoms) / 100000000
+		pogoCoins[addr].coinsAtTimes[curEpoch] = float64(thisPogo.Combined.UnpaidBalanceAtoms) / 100000000
 	}
 	mutex.Unlock()
 
@@ -486,6 +488,9 @@ func getCoinsInEpochRange(startEpoch int64, endEpoch int64, addresses string) fl
 	// Add POGO counts for this epoch range here
 	for j := 0; j < len(addrsToCheck); j++ {
 		for pogoEpoch, coins := range pogoCoins[addrsToCheck[j]].coinsAtTimes {
+			// Shift the payout time back by 1 minute so it falls into the previous hour since it was
+			// coins paid out FOR the previous hour.
+			pogoEpoch -= 60
 			if startEpoch <= pogoEpoch && pogoEpoch < endEpoch {
 				numCoins += coins
 			}
