@@ -161,28 +161,28 @@ func loadDBStatsToMemory() {
 
 // ALL TIMES IN UTC
 
-func getDayStart(dayOffset int) int64 {
-	myTime := time.Now().UTC()
+func getDayStart(dayOffset int, loc *time.Location) int64 {
+	myTime := time.Now().In(loc)
 	myTime = myTime.AddDate(0, 0, dayOffset)
-	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), 0, 0, 0, 0, time.UTC).Unix()
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), 0, 0, 0, 0, loc).Unix()
 }
 
-func getHourStart(hourOffset int) int64 {
-	myTime := time.Now().UTC()
+func getHourStart(hourOffset int, loc *time.Location) int64 {
+	myTime := time.Now().In(loc)
 	myTime = myTime.Add(time.Hour * time.Duration(hourOffset))
-	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), myTime.Hour(), 0, 0, 0, time.UTC).Unix()
+	return time.Date(myTime.Year(), myTime.Month(), myTime.Day(), myTime.Hour(), 0, 0, 0, loc).Unix()
 }
 
-func getCurrentHour() int {
-	myTime := time.Now().UTC()
+func getCurrentHour(loc *time.Location) int {
+	myTime := time.Now().In(loc)
 	return myTime.Hour()
 }
 
 // Make RPC to POGO and update pogoCoins
-func getPogoInfoForAddr(addr string) {
+func getPogoInfoForAddr(addr string, loc *time.Location) {
 
-	startEpoch := getHourStart(0) + 60 // Wait 1 minute past the hour to get new data from POGO...
-	curEpoch := time.Now().UTC().Unix()
+	startEpoch := getHourStart(0, loc) + 60 // Wait 1 minute past the hour to get new data from POGO...
+	curEpoch := time.Now().In(loc).Unix()
 	if curVal, ok := pogoCoins[addr]; ok {
 		if curVal.lastUpdate > startEpoch && (curEpoch-curVal.lastUpdate) < 600 {
 			fmt.Printf("No need to get new info from POGO!\n")
@@ -323,6 +323,7 @@ func updateStats() {
 type mineRPC struct {
 	Addresses string
 	NumDays   int
+	TimeZone  string
 }
 
 func contains(s []string, str string) bool {
@@ -362,15 +363,26 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 	ipFrom := c.ClientIP()
 	fmt.Printf("Request from %s: Getting stats for addresse(s) %s\n", ipFrom, jsonBody.Addresses)
 
-	addrsToCheck := strings.Split(jsonBody.Addresses, ",")
-	for i := 0; i < len(addrsToCheck); i++ {
-		getPogoInfoForAddr(addrsToCheck[i])
+	// load time zone
+	if jsonBody.TimeZone == "" {
+		jsonBody.TimeZone = "UTC"
+	}
+	loc, e := time.LoadLocation(jsonBody.TimeZone)
+
+	if e != nil {
+		fmt.Printf("Unable to get location for tz: %s\n", e.Error())
+		loc, _ = time.LoadLocation("UTC") // This should always work...
 	}
 
-	hoursToday := getCurrentHour()
+	addrsToCheck := strings.Split(jsonBody.Addresses, ",")
+	for i := 0; i < len(addrsToCheck); i++ {
+		getPogoInfoForAddr(addrsToCheck[i], loc)
+	}
+
+	hoursToday := getCurrentHour(loc)
 	for i := 0; i <= hoursToday; i++ {
 		curHour := i - hoursToday
-		startEpoch := getHourStart(curHour)
+		startEpoch := getHourStart(curHour, loc)
 		endEpoch := startEpoch + 3600
 		var thisHour HourStat
 
@@ -404,7 +416,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 	}
 	for i := 0; i <= numDays; i++ {
 		curDay := i - numDays
-		startEpoch := getDayStart(curDay)
+		startEpoch := getDayStart(curDay, loc)
 		endEpoch := startEpoch + 86400
 		var thisDay DayStat
 
@@ -416,7 +428,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 		} else {
 			thisDay.WinPercent = 0.0
 		}
-		formattedTime := time.Unix(startEpoch, 0).UTC().Format("2006-01-02")
+		formattedTime := time.Unix(startEpoch, 0).In(loc).Format("2006-01-02")
 		if i < numDays {
 			thisDay.Day = formattedTime
 		} else {
@@ -432,7 +444,7 @@ func getAddrMiningStatsRPC(c *gin.Context) {
 		NetHash             float64
 	}
 
-	secondsSoFarToday := float64(time.Now().Unix()-getDayStart(0)) + 1.0
+	secondsSoFarToday := float64(time.Now().Unix()-getDayStart(0, loc)) + 1.0
 
 	var thisResponse ResponseStats
 	thisResponse.NetHash = globalNetHash
