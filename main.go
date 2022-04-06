@@ -219,16 +219,19 @@ func getPogoInfoForAddr(addr string, loc *time.Location) {
 	resp, err := http.Get(reqUrl.String())
 	if err != nil {
 		log.Printf("Unable to make request to dmo-tools: %s", err.Error())
+		mutex.Unlock()
 		return
 	}
 	bodyText, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Unable to make request to dmo-tools: %s", err.Error())
+		mutex.Unlock()
 		return
 	}
 
 	if err := json.Unmarshal(bodyText, &thisPogo); err != nil {
 		log.Printf("Unable to make request to dmo-statservice: %s", err.Error())
+		mutex.Unlock()
 		return
 	}
 
